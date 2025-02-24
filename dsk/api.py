@@ -44,14 +44,14 @@ class DeepSeekAPI:
         if not auth_token or not isinstance(auth_token, str):
             raise AuthenticationError("Invalid auth token provided")
 
-        try:
-            curl_cffi_version = pkg_resources.get_distribution('curl-cffi').version
-            if curl_cffi_version != '0.8.1b9':
-                print("\033[93mWarning: DeepSeek API requires curl-cffi version 0.8.1b9", file=sys.stderr)
-                print("Please install the correct version using: pip install curl-cffi==0.8.1b9\033[0m", file=sys.stderr)
-        except pkg_resources.DistributionNotFound:
-            print("\033[93mWarning: curl-cffi not found. Please install version 0.8.1b9:", file=sys.stderr)
-            print("pip install curl-cffi==0.8.1b9\033[0m", file=sys.stderr)
+        # try:
+        #     curl_cffi_version = pkg_resources.get_distribution('curl-cffi').version
+        #     if curl_cffi_version != '0.8.1b9':
+        #         print("\033[93mWarning: DeepSeek API requires curl-cffi version 0.8.1b9", file=sys.stderr)
+        #         print("Please install the correct version using: pip install curl-cffi==0.8.1b9\033[0m", file=sys.stderr)
+        # except pkg_resources.DistributionNotFound:
+        #     print("\033[93mWarning: curl-cffi not found. Please install version 0.8.1b9:", file=sys.stderr)
+        #     print("pip install curl-cffi==0.8.1b9\033[0m", file=sys.stderr)
 
         self.auth_token = auth_token
         self.pow_solver = DeepSeekPOW()
@@ -63,7 +63,7 @@ class DeepSeekAPI:
                 cookie_data = json.load(f)
                 self.cookies = cookie_data.get('cookies', {})
         except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"\033[93mWarning: Could not load cookies from {cookies_path}: {e}\033[0m", file=sys.stderr)
+            # print(f"\033[93mWarning: Could not load cookies from {cookies_path}: {e}\033[0m", file=sys.stderr)
             self.cookies = {}
 
     def _get_headers(self, pow_response: Optional[str] = None) -> Dict[str, str]:
@@ -107,7 +107,7 @@ class DeepSeekAPI:
         except Exception as e:
             print(f"\033[93mWarning: Failed to refresh cookies: {e}\033[0m", file=sys.stderr)
 
-    def _make_request(self, method: str, endpoint: str, json_data: Dict[str, Any], pow_required: bool = False) -> Any:
+    def _make_request(self, method: str, endpoint: str, json_data: Dict[str, Any] = None, pow_required: bool = False) -> Any:
         url = f"{self.BASE_URL}{endpoint}"
 
         retry_count = 0
@@ -251,7 +251,7 @@ class DeepSeekAPI:
                     parsed = self._parse_chunk(chunk)
                     if parsed:
                         yield parsed
-                        if parsed.get('finish_reason') == 'stop':
+                        if parsed['choices'][0].get('finish_reason') == 'stop':
                             break
                 except Exception as e:
                     raise APIError(f"Error parsing response chunk: {str(e)}")
@@ -269,18 +269,40 @@ class DeepSeekAPI:
                 data = json.loads(chunk[6:])
 
                 if 'choices' in data and data['choices']:
-                    choice = data['choices'][0]
-                    if 'delta' in choice:
-                        delta = choice['delta']
+                    return data
+                    # choice = data['choices'][0]
+                    # if 'delta' in choice:
+                    #     delta = choice['delta']
 
-                        return {
-                            'content': delta.get('content', ''),
-                            'type': delta.get('type', ''),
-                            'finish_reason': choice.get('finish_reason')
-                        }
+                    #     return {
+                    #         'content': delta.get('content', ''),
+                    #         'type': delta.get('type', ''),
+                    #         'finish_reason': choice.get('finish_reason')
+                    #     }
         except json.JSONDecodeError:
             raise APIError("Invalid JSON in response chunk")
         except Exception as e:
             raise APIError(f"Error parsing chunk: {str(e)}")
 
         return None
+
+    def history_messages(self, chat_session_id: str):
+        """Get the history messages of a chat session"""
+        try:
+            response = self._make_request(
+                'GET',
+                f'/chat/history_messages?chat_session_id={chat_session_id}'
+            )
+            return response
+        except KeyError:
+            raise APIError("Invalid history messages response format from server")
+        
+    def fetch_page(self):
+        try:
+            response = self._make_request(
+                'GET',
+                '/chat_session/fetch_page?count=100'
+            )
+            return response
+        except KeyError:
+            raise APIError("Invalid fetch page response format from server")
